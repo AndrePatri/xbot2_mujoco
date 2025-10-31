@@ -111,6 +111,10 @@ class SimulatorLauncher:
                 simtime_elapsed = self.sim.physics_dt * self.sim.step_counter
                 rt_factor = simtime_elapsed / elapsed_time if elapsed_time > 0 else float('inf')
                 print(f"RT Factor at step {n_steps_done}: {rt_factor:.2f}, Simulated Time: {simtime_elapsed:.6f}s, Elapsed Time: {elapsed_time:.6f}s")
+                print("Robot position")
+                print(self.sim.p)
+                print("Robot orientation")
+                print(self.sim.q)
 
         # Final stats after simulation ends
         total_elapsed_time = time.time() - start_time  # Total wall time (including everything)
