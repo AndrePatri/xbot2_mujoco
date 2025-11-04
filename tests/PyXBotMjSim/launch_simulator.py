@@ -38,7 +38,7 @@ class SimulatorLauncher:
             model_fname=mj_xml_path,
             xbot2_config_path=self.args.xbot_config_path or f"{files_dir}/centauro/xbot2_basic.yaml",
             headless=self.args.headless,
-            manual_stepping=True,
+            manual_stepping=not self.args.no_manual_stepping,
             init_steps=100,
             timeout=1000,
             base_link_name=base_link,
@@ -67,7 +67,6 @@ class SimulatorLauncher:
 
         start_time = time.time()  # Track total time
         stepping_time = 0.0       # Track only time spent stepping
-        n_steps_done = 0
         db_stepfreq = 5000  # Frequency to print and update RT factor
         initial_step_counter = self.sim.step_counter
         
@@ -86,6 +85,12 @@ class SimulatorLauncher:
         pi[0] += random.uniform(-1.0, 1.0)
         pi[1] += random.uniform(-1.0, 1.0)
         random_theta = random.uniform(-180.0, 180.0)
+        
+        if self.args.no_manual_stepping: # wait for sim to be ready
+            while not self.sim.is_running():
+                print("Waiting for sim to be ready ...")
+                time.sleep(0.5)
+
         qi[:] = self.quaternion_from_rotation_z(random_theta)
         self.sim.set_pi(pi)
         self.sim.set_qi(qi)
@@ -93,24 +98,25 @@ class SimulatorLauncher:
         
         while self.sim.is_running():
             step_start = time.time()  # Start timing the step
-            if not self.sim.step():
+            step_ok=self.sim.step()
+            if not step_ok:
                 break
             step_end = time.time()  # End timing the step
             stepping_time += (step_end - step_start)  # Accumulate stepping time
-            n_steps_done += 1
 
             # Publish simulation time to /clock if enabled
-            if self.clock_publisher and (n_steps_done % ros_clock_freq == 0):
+            if self.clock_publisher and (self.sim.step_counter % ros_clock_freq == 0):
                 simtime_elapsed = rospy.Time.from_sec(self.sim.physics_dt * self.sim.step_counter)
                 clock_msg = Clock(clock=simtime_elapsed)
                 self.clock_publisher.publish(clock_msg)
 
             # Update and print RT factor every db_stepfreq steps
-            if n_steps_done % db_stepfreq == 0:
+            if self.sim.step_counter % db_stepfreq == 0:
                 elapsed_time = time.time() - start_time  # Total elapsed wall time so far
                 simtime_elapsed = self.sim.physics_dt * self.sim.step_counter
                 rt_factor = simtime_elapsed / elapsed_time if elapsed_time > 0 else float('inf')
-                print(f"RT Factor at step {n_steps_done}: {rt_factor:.2f}, Simulated Time: {simtime_elapsed:.6f}s, Elapsed Time: {elapsed_time:.6f}s")
+                print(f"RT Factor at step {self.sim.step_counter}: {rt_factor:.2f}, \
+                      Simulated Time: {simtime_elapsed:.6f}s, Elapsed Time: {elapsed_time:.6f}s")
                 print("Robot position")
                 print(self.sim.p)
                 print("Robot orientation")
@@ -146,6 +152,7 @@ if __name__ == "__main__":
     parser.add_argument('--xbot_config_path', type=str, help='Path to the XBot2 configuration file.')
 
     # Simulation parameters
+    parser.add_argument('--no_manual_stepping', action='store_true', help='disable manual stepping')
     parser.add_argument('--headless', action='store_true', help='Run the simulation in headless mode.')
     parser.add_argument('--pub_rostime', action='store_true', help='Publish simulation time to the /clock topic.')
     parser.add_argument('--blink_name', type=str, default="base_link", 

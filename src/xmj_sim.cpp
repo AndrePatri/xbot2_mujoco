@@ -95,7 +95,11 @@ void XBotMjSim::close() {
 
 bool XBotMjSim::step() {
 
-    if (manual_stepping && running.load()) {
+    if (not running.load()) {
+        return false;
+    }
+
+    if (manual_stepping) {
         std::unique_lock<std::mutex> lock(ph_step_mtx);
         step_req = true;  
         step_done=false;  
@@ -110,10 +114,9 @@ bool XBotMjSim::step() {
         
         read_state(); // update state from sim
 
-        return true;
-    } else { 
-        return false;
     }
+    
+    return true;
 }
 
 void XBotMjSim::read_state() {
@@ -489,7 +492,8 @@ void XBotMjSim::initialize(bool headless) {
     // simulate object encapsulates the UI
     xbot_mujoco::sim = std::make_unique<mj::Simulate>(
         std::make_unique<mj::GlfwAdapter>(),
-        &cam, &opt, &pert, /* is_passive = */ false,
+        &cam, &opt, &pert, 
+        /* is_passive = */ false,
         headless
     );
 

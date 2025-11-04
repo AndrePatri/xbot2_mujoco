@@ -1819,7 +1819,7 @@ Simulate::Simulate(std::unique_ptr<PlatformUIAdapter> platform_ui,
 // operations which require holding the mutex, prevents racing with physics thread
 void Simulate::Sync() {
     MutexLock lock(this->mtx);
-
+    
     if (!m_) {
         return;
     }
@@ -2732,7 +2732,7 @@ void Simulate::RenderLoopRun() {
             frames_ = 0;
         }
       } else { // avoid busy loop
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
   }
 
