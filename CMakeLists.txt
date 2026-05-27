@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.2)
+cmake_minimum_required(VERSION 3.5)
 project(xbot2_mujoco)
 
 find_package(mujoco_cmake REQUIRED)
@@ -112,4 +112,3 @@ endif()
 if(${WITH_PYTHON})
     add_subdirectory(bindings/python/)
 endif()
-
