@@ -7,8 +7,6 @@ import argparse
 from xbot2_mujoco.PyXbotMjSim import XBotMjSim
 from xbot2_mujoco.PyXbotMjSim import LoadingUtils
 
-import rospy
-
 class TestSimStepping(unittest.TestCase):
 
     @staticmethod

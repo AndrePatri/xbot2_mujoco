@@ -1,10 +1,118 @@
 import time
 import numpy as np
 import argparse
-import rospy
-from rosgraph_msgs.msg import Clock
+from pathlib import Path
+import xml.etree.ElementTree as ET
 from xbot2_mujoco.PyXbotMjSim import XBotMjSim
 from xbot2_mujoco.PyXbotMjSim import LoadingUtils
+
+
+class Ros1ClockPublisher:
+    def __init__(self):
+        try:
+            import rospy
+            from rosgraph_msgs.msg import Clock
+        except ImportError as exc:
+            raise RuntimeError(
+                "ROS 1 clock publishing requested, but rospy or rosgraph_msgs "
+                "could not be imported. Source ROS 1 or use --ros-version ros2."
+            ) from exc
+
+        self._rospy = rospy
+        self._clock_msg_type = Clock
+
+        rospy.set_param('/use_sim_time', True)
+        rospy.init_node('sim_clock_publisher', anonymous=True)
+        self._publisher = rospy.Publisher('/clock', Clock, queue_size=10)
+
+    def publish(self, sim_time):
+        clock_msg = self._clock_msg_type(clock=self._rospy.Time.from_sec(sim_time))
+        self._publisher.publish(clock_msg)
+
+    def close(self):
+        pass
+
+
+class Ros2ClockPublisher:
+    def __init__(self):
+        try:
+            import rclpy
+            from rclpy.context import Context
+            from rclpy.executors import SingleThreadedExecutor
+            from rosgraph_msgs.msg import Clock
+        except ImportError as exc:
+            raise RuntimeError(
+                "ROS 2 clock publishing requested, but rclpy or rosgraph_msgs "
+                "could not be imported. Source ROS 2 or use --ros-version ros1."
+            ) from exc
+
+        self._rclpy = rclpy
+        self._clock_msg_type = Clock
+        self._context = Context()
+        rclpy.init(args=None, context=self._context)
+        self._node = rclpy.create_node('sim_clock_publisher', context=self._context)
+        self._executor = SingleThreadedExecutor(context=self._context)
+        self._executor.add_node(self._node)
+        if not self._node.has_parameter('use_sim_time'):
+            self._node.declare_parameter('use_sim_time', True)
+        self._publisher = self._node.create_publisher(Clock, '/clock', 10)
+
+    def publish(self, sim_time):
+        sec = int(sim_time)
+        nanosec = int(round((sim_time - sec) * 1e9))
+        if nanosec >= 1000000000:
+            sec += 1
+            nanosec -= 1000000000
+
+        clock_msg = self._clock_msg_type()
+        clock_msg.clock.sec = sec
+        clock_msg.clock.nanosec = nanosec
+        self._publisher.publish(clock_msg)
+        self._executor.spin_once(timeout_sec=0.0)
+
+    def close(self):
+        self._executor.remove_node(self._node)
+        self._node.destroy_node()
+        self._executor.shutdown()
+        self._rclpy.shutdown(context=self._context)
+
+
+def make_clock_publisher(ros_version):
+    if ros_version in ("1", 1):
+        ros_version = "ros1"
+    elif ros_version in ("2", 2):
+        ros_version = "ros2"
+
+    if ros_version == "ros1":
+        return Ros1ClockPublisher()
+    if ros_version == "ros2":
+        return Ros2ClockPublisher()
+
+    raise ValueError(f"Unsupported ROS version '{ros_version}'")
+
+
+def require_existing_file(path, label):
+    path = Path(path).expanduser()
+    if not path.is_file():
+        raise FileNotFoundError(f"{label} file does not exist: {path}")
+    if path.stat().st_size == 0:
+        raise RuntimeError(f"{label} file is empty: {path}")
+    return str(path)
+
+
+def require_xml_root(path, expected_root, label):
+    path = require_existing_file(path, label)
+    try:
+        root = ET.parse(path).getroot()
+    except ET.ParseError as exc:
+        raise RuntimeError(f"{label} file is not valid XML: {path}: {exc}") from exc
+
+    if root.tag != expected_root:
+        raise RuntimeError(
+            f"{label} file has root <{root.tag}>, expected <{expected_root}>: {path}"
+        )
+
+    return path
 
 
 class SimulatorLauncher:
@@ -12,31 +120,50 @@ class SimulatorLauncher:
         self.args = args
         self.clock_publisher = None
 
-        if self.args.pub_rostime:
-            rospy.set_param('/use_sim_time', True)
-            rospy.init_node('sim_clock_publisher', anonymous=True)
-            self.clock_publisher = rospy.Publisher('/clock', Clock, queue_size=10)
-
         # Initialize the LoadingUtils instance
         self.loader = LoadingUtils("XMjEnvPy")
         files_dir = self.args.files_dir or "/root/ibrido_ws/src/xbot2_mujoco/tests/files"
 
         base_link = self.args.blink_name
+        urdf_path = require_xml_root(
+            self.args.urdf_path or f"{files_dir}/centauro/centauro.urdf",
+            "robot",
+            "URDF",
+        )
+        simopt_path = require_xml_root(
+            self.args.simopt_path or f"{files_dir}/centauro/sim_opt.xml",
+            "mujoco",
+            "simulation options",
+        )
+        world_path = require_xml_root(
+            self.args.world_path or f"{files_dir}/centauro/world.xml",
+            "mujoco",
+            "world",
+        )
+        sites_path = require_xml_root(
+            self.args.sites_path or f"{files_dir}/centauro/sites.xml",
+            "sites",
+            "sites",
+        )
+        xbot_config_path = require_existing_file(
+            self.args.xbot_config_path or f"{files_dir}/centauro/xbot2_basic.yaml",
+            "XBot2 config",
+        )
 
         # default to use centauro
-        self.loader.set_urdf_path(self.args.urdf_path or f"{files_dir}/centauro/centauro.urdf")
-        self.loader.set_simopt_path(self.args.simopt_path or f"{files_dir}/centauro/sim_opt.xml")
-        self.loader.set_world_path(self.args.world_path or f"{files_dir}/centauro/world.xml")
-        self.loader.set_sites_path(self.args.sites_path or f"{files_dir}/centauro/sites.xml")
-        self.loader.set_xbot_config_path(self.args.xbot_config_path or f"{files_dir}/centauro/xbot2_basic.yaml")
+        self.loader.set_urdf_path(urdf_path)
+        self.loader.set_simopt_path(simopt_path)
+        self.loader.set_world_path(world_path)
+        self.loader.set_sites_path(sites_path)
+        self.loader.set_xbot_config_path(xbot_config_path)
         self.loader.generate()
 
-        mj_xml_path = self.loader.xml_path()
+        mj_xml_path = require_xml_root(self.loader.xml_path(), "mujoco", "generated MuJoCo model")
 
         # Initialize the XBotMjSim environment
         self.sim = XBotMjSim(
             model_fname=mj_xml_path,
-            xbot2_config_path=self.args.xbot_config_path or f"{files_dir}/centauro/xbot2_basic.yaml",
+            xbot2_config_path=xbot_config_path,
             headless=self.args.headless,
             manual_stepping=not self.args.no_manual_stepping,
             init_steps=100,
@@ -49,6 +176,9 @@ class SimulatorLauncher:
             render_base_path = "/tmp",
             render_fps = 60.0
         )
+
+        if self.args.pub_rostime:
+            self.clock_publisher = make_clock_publisher(self.args.ros_version)
 
     def quaternion_from_rotation_z(self, theta_degrees):
         # Convert theta from degrees to radians
@@ -106,9 +236,8 @@ class SimulatorLauncher:
 
             # Publish simulation time to /clock if enabled
             if self.clock_publisher and (self.sim.step_counter % ros_clock_freq == 0):
-                simtime_elapsed = rospy.Time.from_sec(self.sim.physics_dt * self.sim.step_counter)
-                clock_msg = Clock(clock=simtime_elapsed)
-                self.clock_publisher.publish(clock_msg)
+                simtime_elapsed = self.sim.physics_dt * self.sim.step_counter
+                self.clock_publisher.publish(simtime_elapsed)
 
             # Update and print RT factor every db_stepfreq steps
             if self.sim.step_counter % db_stepfreq == 0:
@@ -137,7 +266,11 @@ class SimulatorLauncher:
         print(f"RT factor (actual stepping time): {stepping_rt_factor:.2f}, physics dt: {self.sim.physics_dt:.6f} seconds.")
 
     def close(self):
-        self.sim.close()
+        try:
+            self.sim.close()
+        finally:
+            if self.clock_publisher:
+                self.clock_publisher.close()
 
 
 if __name__ == "__main__":
@@ -155,6 +288,9 @@ if __name__ == "__main__":
     parser.add_argument('--no_manual_stepping', action='store_true', help='disable manual stepping')
     parser.add_argument('--headless', action='store_true', help='Run the simulation in headless mode.')
     parser.add_argument('--pub_rostime', action='store_true', help='Publish simulation time to the /clock topic.')
+    parser.add_argument('--ros-version', '--ros_version', dest='ros_version',
+        choices=('ros2', 'ros1', '2', '1'), default='ros2',
+        help='ROS backend used when --pub_rostime is enabled.')
     parser.add_argument('--blink_name', type=str, default="base_link", 
         help='root link name (will be used for getting measurements and teleportation)')
     parser.add_argument('--fullspeed', action='store_true', help='Do NOT try to match desired rt factor')
@@ -168,5 +304,3 @@ if __name__ == "__main__":
         simulator.run()
     finally:
         simulator.close()
-
-

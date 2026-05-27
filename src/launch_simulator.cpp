@@ -14,28 +14,60 @@
 
 #include "simulator.h"
 
+#include <fstream>
+#include <iostream>
+
 using namespace xbot_mujoco;
+
+namespace {
+
+bool file_exists(const std::string& path)
+{
+    return std::ifstream(path).good();
+}
+
+void print_usage(const char* executable)
+{
+    std::cerr << "Usage: " << executable << " <mujoco_xml_path> <xbot2_config_path>\n";
+}
+
+} // namespace
 
 // run the full simulation loop
 int main(int argc, char** argv)
 {
-
-    std::string xbot2_cfg_path;
-    char filename[mj::Simulate::kMaxFilenameLength];
+    if(argc == 2 && (std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help"))
+    {
+        print_usage(argv[0]);
+        return 0;
+    }
 
     // request loadmodel if file given (otherwise drag-and-drop)
-    if( argc>1 )
+    if(argc < 3)
     {
-        mju_strncpy(filename, argv[1], 1000);
+        print_usage(argv[0]);
+        return 2;
     }
 
-    // xbot2 config
-    if( argc>2 )
+    const std::string model_path = argv[1];
+    const std::string xbot2_cfg_path = argv[2];
+
+    if(!file_exists(model_path))
     {
-        xbot2_cfg_path = argv[2];
+        std::cerr << "MuJoCo XML file does not exist: " << model_path << "\n";
+        return 2;
     }
 
-    bool headless=false;
+    if(!file_exists(xbot2_cfg_path))
+    {
+        std::cerr << "XBot2 config file does not exist: " << xbot2_cfg_path << "\n";
+        return 2;
+    }
+
+    char filename[mj::Simulate::kMaxFilenameLength] = {};
+    mju_strncpy(filename, model_path.c_str(), mj::Simulate::kMaxFilenameLength);
+
+    bool headless = false;
     // ros::init(argc, argv, "mujoco_ros");
     // ros::NodeHandle nh("");
     // run(filename,xbot2_cfg_path,nh,headless); // run everything

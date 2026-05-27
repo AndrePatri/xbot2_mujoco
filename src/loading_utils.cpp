@@ -7,6 +7,61 @@
 #include <filesystem>
 #include <unordered_map>
 
+namespace {
+
+void require_file(const std::string& path, const std::string& label) {
+    if (!std::filesystem::exists(path)) {
+        throw std::runtime_error(label + " file does not exist: " + path);
+    }
+
+    if (!std::filesystem::is_regular_file(path)) {
+        throw std::runtime_error(label + " path is not a regular file: " + path);
+    }
+
+    if (std::filesystem::file_size(path) == 0) {
+        throw std::runtime_error(label + " file is empty: " + path);
+    }
+}
+
+void require_xml_file_root(const std::string& path,
+                           const std::string& expected_root,
+                           const std::string& label) {
+    require_file(path, label);
+
+    pugi::xml_document doc;
+    pugi::xml_parse_result result = doc.load_file(path.c_str());
+    if (!result) {
+        throw std::runtime_error(label + " file is not valid XML: " + path +
+            " (" + result.description() + ")");
+    }
+
+    if (!doc.child(expected_root.c_str())) {
+        throw std::runtime_error(label + " file has no <" + expected_root +
+            "> root: " + path);
+    }
+}
+
+void require_xml_string_root(const std::string& xml,
+                             const std::string& expected_root,
+                             const std::string& label) {
+    if (xml.empty()) {
+        throw std::runtime_error(label + " XML is empty");
+    }
+
+    pugi::xml_document doc;
+    pugi::xml_parse_result result = doc.load_string(xml.c_str());
+    if (!result) {
+        throw std::runtime_error(label + " XML is invalid (" +
+            std::string(result.description()) + ")");
+    }
+
+    if (!doc.child(expected_root.c_str())) {
+        throw std::runtime_error(label + " XML has no <" + expected_root + "> root");
+    }
+}
+
+} // namespace
+
 LoadingUtils::LoadingUtils(const std::string& name)
     : name(name) {
     mjxml_dir = "/tmp/" + name + "_mujoco";
@@ -407,6 +462,7 @@ std::string LoadingUtils::add_mesh_simlink_bfix(const std::string& urdf) {
 void LoadingUtils::preprocess_urdf() {
     std::string urdf;
     if (!urdf_path.empty()) {
+        require_xml_file_root(urdf_path, "robot", "URDF");
         std::ifstream urdfFile(urdf_path);
         urdf = std::string((std::istreambuf_iterator<char>(urdfFile)), std::istreambuf_iterator<char>());
     } else if (!urdf_command.empty()) {
@@ -420,6 +476,7 @@ void LoadingUtils::preprocess_urdf() {
             result += buffer.data();
         }
         urdf = result;
+        require_xml_string_root(urdf, "robot", "URDF command output");
     } else {
         throw std::runtime_error("Either URDF path or URDF command must be specified");
     }
@@ -443,14 +500,16 @@ void LoadingUtils::preprocess_urdf() {
 
 void LoadingUtils::compile_urdf_for_mj(std::string xml, std::string outpath) {
     printf( "[LoadingUtils][mergeXML]: compiling URDF using mujoco_compile...\n");
+    require_xml_file_root(mjurdf_path, "robot", "preprocessed URDF");
     std::string cmd = "mujoco_compile " + mjurdf_path + " " + mjxml_path_orig;
     auto ret = std::system(cmd.c_str());
     if (ret != 0) {
         // If the return value is non-zero, there was an error
-        printf( "[LoadingUtils][compile_urdf_for_mj]: Error occurred during mujoco_compile. Return code: %d\n", ret);
+        throw std::runtime_error("[LoadingUtils][compile_urdf_for_mj]: mujoco_compile failed with return code " + std::to_string(ret));
     } else {
         printf( "[LoadingUtils][mergeXML]: done. Return code: %d\n", ret);
     }
+    require_xml_file_root(outpath, "mujoco", "compiled MuJoCo XML");
 }
 
 void LoadingUtils::merg_xml_trees(pugi::xml_node& parent, pugi::xml_node child) {
@@ -477,20 +536,40 @@ void LoadingUtils::merge_xml(std::string to_be_added, std::string into, std::str
     pugi::xml_document inTo;
     pugi::xml_document toBeAdded;
 
-    inTo.load_file(into.c_str());
-    toBeAdded.load_file(to_be_added.c_str());
+    pugi::xml_parse_result intoResult = inTo.load_file(into.c_str());
+    if (!intoResult) {
+        throw std::runtime_error("[LoadingUtils][mergeXML]: failed to load MuJoCo XML " + into +
+            " (" + intoResult.description() + ")");
+    }
+
+    pugi::xml_parse_result addResult = toBeAdded.load_file(to_be_added.c_str());
+    if (!addResult) {
+        throw std::runtime_error("[LoadingUtils][mergeXML]: failed to load XML " + to_be_added +
+            " (" + addResult.description() + ")");
+    }
     printf( "[LoadingUtils][mergeXML]: loaded xml at %s \n", to_be_added.c_str());
 
     // Remove specific nodes from the MuJoCo XML
     pugi::xml_node mujocoNode = inTo.child("mujoco");
+    if (!mujocoNode) {
+        throw std::runtime_error("[LoadingUtils][mergeXML]: input XML has no <mujoco> root: " + into);
+    }
+
+    pugi::xml_node toBeAddedNode = toBeAdded.child("mujoco");
+    if (!toBeAddedNode) {
+        throw std::runtime_error("[LoadingUtils][mergeXML]: merged XML has no <mujoco> root: " + to_be_added);
+    }
     // mujocoNode.remove_child("compiler");
     // mujocoNode.remove_child("size");
 
     // Merge the simulator options and world XML into the main MuJoCo XML
-    merg_xml_trees(mujocoNode, toBeAdded.child("mujoco"));
+    merg_xml_trees(mujocoNode, toBeAddedNode);
 
     // Save the merged XML back to a file
-    inTo.save_file(out.c_str());
+    if (!inTo.save_file(out.c_str())) {
+        throw std::runtime_error("[LoadingUtils][mergeXML]: failed to save merged XML to " + out);
+    }
+    require_xml_file_root(out, "mujoco", "merged MuJoCo XML");
 }
 
 // Function to find a <body> node with a specific name attribute using XPath
@@ -509,20 +588,17 @@ void LoadingUtils::add_sites() {
     std::cout << "Loading sites and MuJoCo XML..." << std::endl;
     // Load the MuJoCo XML and sites XML documents
     if (!mjXmlDoc.load_file(mjxml_path.c_str())) {
-        std::cerr << "[LoadingUtils][add_sites]: Error loading MuJoCo XML file at " << mjxml_path << std::endl;
-        return;
+        throw std::runtime_error("[LoadingUtils][add_sites]: Error loading MuJoCo XML file at " + mjxml_path);
     }
     if (!sitesDoc.load_file(sites_path.c_str())) {
-        std::cerr << "[LoadingUtils][add_sites]: Error loading sites XML file at " << sites_path << std::endl;
-        return;
+        throw std::runtime_error("[LoadingUtils][add_sites]: Error loading sites XML file at " + sites_path);
     }
     printf( "[LoadingUtils][add_sites]: Loaded sites from %s\n", sites_path.c_str());
 
     // Find the root node of the sites XML document
     pugi::xml_node sitesRoot = sitesDoc.child("sites");
     if (!sitesRoot) {
-        std::cerr << "[LoadingUtils][add_sites]: No <sites> root element found in " << sites_path << std::endl;
-        return;
+        throw std::runtime_error("[LoadingUtils][add_sites]: No <sites> root element found in " + sites_path);
     }
 
     // Iterate over all <body> elements in the sites XML
@@ -544,18 +620,23 @@ void LoadingUtils::add_sites() {
 
     // Save the modified MuJoCo XML document
     if (!mjXmlDoc.save_file(mjxml_path.c_str())) {
-        std::cerr << "[LoadingUtils][add_sites]: Error saving modified MuJoCo XML file to " << mjxml_path << std::endl;
+        throw std::runtime_error("[LoadingUtils][add_sites]: Error saving modified MuJoCo XML file to " + mjxml_path);
     } else {
         std::cout << "Successfully added sites and saved MuJoCo XML." << std::endl;
     }
+    require_xml_file_root(mjxml_path, "mujoco", "MuJoCo XML with sites");
 }
 
 void LoadingUtils::add_compiler_opts() {
     printf( "[LoadingUtils][mergeXML]: Adding compiler opts to URDF's xml...\n");
+    require_xml_file_root(mjurdf_path, "robot", "preprocessed URDF");
     pugi::xml_document preprocessed_urdf;
     preprocessed_urdf.load_file(mjurdf_path.c_str());
     pugi::xml_node root = preprocessed_urdf.document_element();
     pugi::xml_node robot = preprocessed_urdf.child("robot");
+    if (!robot) {
+        throw std::runtime_error("[LoadingUtils][mergeXML]: preprocessed URDF has no <robot> root: " + mjurdf_path);
+    }
     pugi::xml_node mujoco = robot.append_child("mujoco");
     pugi::xml_node compiler = mujoco.append_child("compiler");
     compiler.append_attribute("discardvisual").set_value("false");
