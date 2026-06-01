@@ -63,7 +63,6 @@ ImuMjServer::ImuMjServer(mjModel *mj_model, std::string cfg_path):
     }
 
     std::vector<Hal::DeviceRt::Ptr> devs(_imus.begin(), _imus.end());
-
     _srv = std::make_unique<ServerManager>(devs, "sock", "imu_gz");
 }
 

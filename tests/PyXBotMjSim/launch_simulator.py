@@ -166,7 +166,7 @@ class SimulatorLauncher:
             xbot2_config_path=xbot_config_path,
             headless=self.args.headless,
             manual_stepping=not self.args.no_manual_stepping,
-            init_steps=100,
+            init_steps=0,
             timeout=1000,
             base_link_name=base_link,
             match_rt_factor=not self.args.fullspeed,
@@ -199,6 +199,7 @@ class SimulatorLauncher:
         stepping_time = 0.0       # Track only time spent stepping
         db_stepfreq = 5000  # Frequency to print and update RT factor
         initial_step_counter = self.sim.step_counter
+        last_debug_step = initial_step_counter
         
         ros_clock_freq=1
 
@@ -211,7 +212,7 @@ class SimulatorLauncher:
         pi = np.zeros((3))
         qi = np.zeros((4))
         qi[0] = 1  # Quaternion identity
-        pi[2] = self.sim.get_pi()[2]  # Initial z position
+        pi[2] = self.args.root_spawn_height if self.args.root_spawn_height is not None else self.sim.get_pi()[2]
         pi[0] += random.uniform(-1.0, 1.0)
         pi[1] += random.uniform(-1.0, 1.0)
         random_theta = random.uniform(-180.0, 180.0)
@@ -225,6 +226,11 @@ class SimulatorLauncher:
         self.sim.set_pi(pi)
         self.sim.set_qi(qi)
         self.sim.reset()
+
+        if not self.args.no_manual_stepping and self.args.init_steps > 0:
+            for _ in range(self.args.init_steps):
+                if not self.sim.step():
+                    raise RuntimeError("Failed to complete XBot-MuJoCo initialization step")
         
         while self.sim.is_running():
             step_start = time.time()  # Start timing the step
@@ -240,7 +246,8 @@ class SimulatorLauncher:
                 self.clock_publisher.publish(simtime_elapsed)
 
             # Update and print RT factor every db_stepfreq steps
-            if self.sim.step_counter % db_stepfreq == 0:
+            if self.sim.step_counter > last_debug_step and self.sim.step_counter % db_stepfreq == 0:
+                last_debug_step = self.sim.step_counter
                 elapsed_time = time.time() - start_time  # Total elapsed wall time so far
                 simtime_elapsed = self.sim.physics_dt * self.sim.step_counter
                 rt_factor = simtime_elapsed / elapsed_time if elapsed_time > 0 else float('inf')
@@ -293,6 +300,10 @@ if __name__ == "__main__":
         help='ROS backend used when --pub_rostime is enabled.')
     parser.add_argument('--blink_name', type=str, default="base_link", 
         help='root link name (will be used for getting measurements and teleportation)')
+    parser.add_argument('--root_spawn_height', type=float, default=None,
+        help='Initial floating-base z position before simulator reset.')
+    parser.add_argument("--init_steps", type=int, default=100,
+        help="Manual-stepping warm-up steps after the initial reset.")
     parser.add_argument('--fullspeed', action='store_true', help='Do NOT try to match desired rt factor')
     parser.add_argument('--rt_factor', type=float, help='target rt factor', default=1.0)
     parser.add_argument('--render_to_file', action='store_true', help='')

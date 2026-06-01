@@ -66,12 +66,22 @@ JointMjServer::JointMjServer(mjModel * mj_model, std::string cfg_path):
 
         j->tx().reset(j->rx());
 
+        int actuator_id = -1;
+        for (int a = 0; a < _m->nu; ++a)
+        {
+            if (_m->actuator_trntype[a] == mjTRN_JOINT && _m->actuator_trnid[2*a] == i)
+            {
+                actuator_id = a;
+                break;
+            }
+        }
+
         _joints.push_back(j);
         _mj_jnt_names.push_back(jname);
+        _mj_actuator_ids.push_back(actuator_id);
     }
 
     std::vector<Hal::DeviceRt::Ptr> devs(_joints.begin(), _joints.end());
-
     _srv = std::make_unique<ServerManager>(devs, "sock", "joint_gz");
 }
 
@@ -108,10 +118,21 @@ void JointMjServer::run(mjData * d)
 
     _srv->run();
         
-    for(auto& j : _joints)
+    for(size_t i = 0; i < _joints.size(); ++i)
     {
+        auto& j = _joints[i];
         int vi = _m->jnt_dofadr[j->get_id()];
-        d->ctrl[vi] = j->rx().torque;
+        int actuator_id = _mj_actuator_ids[i];
+
+        if(actuator_id >= 0)
+        {
+            d->ctrl[actuator_id] = j->rx().torque;
+        }
+        else
+        {
+            d->qfrc_applied[vi] = j->rx().torque;
+        }
+
         j->move();
     }
 

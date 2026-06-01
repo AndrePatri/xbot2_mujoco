@@ -581,8 +581,20 @@ void xbot_mujoco::Reset(mj::Simulate& sim) {
 
   xbot_mujoco::MoveJntsToHomingNow(d);
   xbot_mujoco::MoveBaseNowTo(d,p_init,q_init,root_link);
+
+  if (m != nullptr && d != nullptr) {
+    mju_zero(d->qvel, m->nv);
+    mju_zero(d->qacc, m->nv);
+    if (m->nu > 0) {
+      mju_zero(d->ctrl, m->nu);
+    }
+    mju_zero(d->qfrc_applied, m->nv);
+    mju_zero(d->xfrc_applied, 6 * m->nbody);
+    mj_forward(m, d);
+  }
+
   xbot2_wrapper->reset(d);
-  step_counter==0;
+  step_counter = 0;
 }
 
 // void xbot_mujoco::run(const char* fname, 

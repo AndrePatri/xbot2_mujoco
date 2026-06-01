@@ -55,8 +55,8 @@ PYBIND11_MODULE(PyXbotMjSim, m) {
         .def("is_running", &XBotMjSim::is_running, "Check if the simulation is running")
         .def("n_jnts", &XBotMjSim::n_jnts, "get n of controllable joints")
         .def("jnt_names", &XBotMjSim::jnt_names, "get names of controllable joints")
-        .def("move_to_homing_now", &XBotMjSim::jnt_names, "move robot to homing NOW!")
-        .def("move_base_to_now", &XBotMjSim::jnt_names, "move robot base somewhere NOW!")
+        .def("move_to_homing_now", &XBotMjSim::move_to_homing_now, "move robot to homing NOW!")
+        .def("move_base_to_now", &XBotMjSim::move_base_to_now, "move robot base somewhere NOW!")
 
         // Bind the public attributes
         .def_readwrite("base_link_name", &XBotMjSim::base_link_name, "Name of the base link")

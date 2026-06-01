@@ -58,6 +58,7 @@ private:
     std::vector<JointInstanceMj::Ptr> _joints;
 
     std::vector<std::string> _mj_jnt_names;
+    std::vector<int> _mj_actuator_ids;
 
     std::map<std::string, std::pair<double, double>> motor_pd_map;
 

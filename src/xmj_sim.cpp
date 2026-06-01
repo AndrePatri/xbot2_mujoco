@@ -49,7 +49,7 @@ XBotMjSim::XBotMjSim(
     std::string render_base_path,
     float render_fps)
     :xbot2_config_path(xbot2_config_path),model_fname(model_fname),
-    headless(headless),manual_stepping(manual_stepping), timeout(timeout),
+    headless(headless),manual_stepping(manual_stepping), timeout(timeout), init_steps(init_steps),
     base_link_name(base_link_name),
     match_rt_factor(match_rt_factor),
     rt_factor_trgt(rt_factor_trgt),

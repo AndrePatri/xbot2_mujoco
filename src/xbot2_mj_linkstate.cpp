@@ -44,7 +44,6 @@ LinkStateMjServer::LinkStateMjServer(mjModel *mj_model, std::string cfg_path):
     }
 
     std::vector<Hal::DeviceRt::Ptr> devs(_lss.begin(), _lss.end());
-
     _srv = std::make_unique<ServerManager>(devs, "sock", "link_state_sensor");
 
     _J.resize(6, _m->nv);
