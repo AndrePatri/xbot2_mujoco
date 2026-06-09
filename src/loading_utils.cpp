@@ -175,7 +175,7 @@ std::map<std::string, double> LoadingUtils::get_homing_from_srdf(const std::stri
         return homing_map;
     }
 
-    // Find the <group_state> tag with group="chains" and name="home"
+    // Find the <group_state> tag with name="home"
     pugi::xml_node robot = doc.child("robot");
     if (!robot) {
         std::cerr << "No <robot> element found in SRDF file: " << srdf_path << std::endl;
@@ -186,7 +186,7 @@ std::map<std::string, double> LoadingUtils::get_homing_from_srdf(const std::stri
         std::string group_attr = group_state.attribute("group").as_string();
         std::string name_attr = group_state.attribute("name").as_string();
 
-        if (group_attr == "chains" && name_attr == "home") {
+        if (name_attr == "home") {
             // Found the correct group_state, now extract joints
             for (pugi::xml_node joint : group_state.children("joint")) {
                 std::string joint_name = joint.attribute("name").as_string();
