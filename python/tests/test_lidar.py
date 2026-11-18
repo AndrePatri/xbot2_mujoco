@@ -222,7 +222,7 @@ def test_xml_unknown_site(tmp_path):
     'site="s" elevations_deg="0" backend="jax"', 'site="s" elevations_deg="0" geom_groups="6"',
     'site="s" elevations_deg="0" frame_id="/s"', 'site="s" elevations_deg="0" topic="/"',
     'site="s" elevations_deg="0" extra="1"', 'site="s" elevations_deg="0" slices="0"',
-    'site="s" elevations_deg="0" returns="0"', 'site="s" elevations_deg="0" reliable="1"',
+    'site="s" elevations_deg="0" returns="0"', 'site="s" elevations_deg="0" reliable="yes"',
     'site="s" elevations_deg="0" horizontal_samples="10" slices="11"',
     'site="s" elevations_deg="0" horizontal_fov_deg="0"', 'site="s" elevations_deg="0" horizontal_fov_deg="361"',
     'site="s" elevations_deg="0" reliable="yes"',

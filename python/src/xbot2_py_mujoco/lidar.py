@@ -101,10 +101,6 @@ class LidarCfg:
                               ('scan_topic', str)):
             if element.get(name) is not None:
                 optional[name] = convert(element.get(name))
-        if element.get('reliable') is not None:
-            if element.get('reliable') not in ('true', 'false'):
-                raise ValueError('Lidar reliable must be true or false')
-            optional['reliable'] = element.get('reliable') == 'true'
         if element.get('geom_groups') is not None:
             optional['geom_groups'] = tuple(int(g) for g in element.get('geom_groups').split())
         if element.get('reliable') is not None:
